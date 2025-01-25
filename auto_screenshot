@@ -1,0 +1,131 @@
+import sys
+import os
+import time
+import keyboard
+from PIL import ImageGrab
+import win32clipboard
+from io import BytesIO
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QPushButton,
+                             QVBoxLayout, QWidget, QFileDialog, QLabel)
+from PyQt5.QtCore import Qt, QTimer
+
+
+class ScreenCaptureApp(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.initUI()
+        self.save_directory = ""
+        self.is_capturing = False
+        self.clipboard_check_timer = QTimer()
+        self.clipboard_check_timer.timeout.connect(self.check_clipboard)
+        self.last_clipboard_image = None
+
+        # F8 키를 눌렀을 때 프로그램 종료
+        keyboard.on_press_key("F8", lambda _: self.close_application())
+
+    def close_application(self):
+        self.is_capturing = False
+        self.close()
+        sys.exit()
+
+    def initUI(self):
+        self.setWindowTitle('화면 캡처 프로그램')
+        self.setGeometry(100, 100, 300, 150)
+
+        # 중앙 위젯 설정
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        layout = QVBoxLayout()
+
+        # 폴더 선택 버튼
+        self.folder_btn = QPushButton('저장 폴더 선택', self)
+        self.folder_btn.clicked.connect(self.select_folder)
+
+        # 폴더 경로 표시 레이블
+        self.folder_label = QLabel('선택된 폴더: 없음', self)
+        self.folder_label.setWordWrap(True)
+
+        # 시작 버튼
+        self.start_btn = QPushButton('캡처 시작', self)
+        self.start_btn.clicked.connect(self.start_capture)
+
+        # 중지 버튼
+        self.stop_btn = QPushButton('캡처 중지', self)
+        self.stop_btn.clicked.connect(self.stop_capture)
+        self.stop_btn.setEnabled(False)
+
+        # 안내 레이블
+        self.info_label = QLabel('F8: 프로그램 종료', self)
+
+        # 레이아웃에 위젯 추가
+        layout.addWidget(self.folder_btn)
+        layout.addWidget(self.folder_label)
+        layout.addWidget(self.start_btn)
+        layout.addWidget(self.stop_btn)
+        layout.addWidget(self.info_label)
+
+        central_widget.setLayout(layout)
+
+    def select_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, '저장할 폴더 선택')
+        if folder:
+            self.save_directory = folder
+            self.folder_label.setText(f'선택된 폴더: {folder}')
+
+    def start_capture(self):
+        if not self.save_directory:
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.warning(self, '경고', '먼저 저장 폴더를 선택해주세요.')
+            return
+
+        self.is_capturing = True
+        self.start_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+        self.trigger_screenshot()
+        self.clipboard_check_timer.start(1000)  # 1초마다 클립보드 체크
+
+    def stop_capture(self):
+        self.is_capturing = False
+        self.start_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+        self.clipboard_check_timer.stop()
+
+    def trigger_screenshot(self):
+        if self.is_capturing:
+            keyboard.press_and_release('windows+shift+s')
+
+    def check_clipboard(self):
+        try:
+            if win32clipboard.IsClipboardFormatAvailable(win32clipboard.CF_DIB):
+                win32clipboard.OpenClipboard()
+                data = win32clipboard.GetClipboardData(win32clipboard.CF_DIB)
+                win32clipboard.CloseClipboard()
+
+                # 이전 클립보드 이미지와 비교
+                if data != self.last_clipboard_image:
+                    self.last_clipboard_image = data
+
+                    # 이미지 저장
+                    image = ImageGrab.grabclipboard()
+                    if image:
+                        filename = self.get_next_filename()
+                        image.save(filename)
+                        # 저장 후 다음 캡처 트리거
+                        QTimer.singleShot(500, self.trigger_screenshot)
+        except:
+            pass
+
+    def get_next_filename(self):
+        i = 1
+        while True:
+            filename = os.path.join(self.save_directory, f'{i}.png')
+            if not os.path.exists(filename):
+                return filename
+            i += 1
+
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    ex = ScreenCaptureApp()
+    ex.show()
+    sys.exit(app.exec_())
